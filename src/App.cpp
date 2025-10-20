@@ -13,8 +13,6 @@ App::App(WindowProps props) : windowProps(props)
     std::snprintf(hostBuf, sizeof(hostBuf), "127.0.0.1");
     std::snprintf(portBuf, sizeof(portBuf), "3307");
     std::snprintf(userBuf, sizeof(userBuf), "root");
-    std::snprintf(passBuf, sizeof(passBuf), "Restauracja123!");
-    std::snprintf(dbBuf, sizeof(dbBuf), "restauracja");
 
     init(props);
 }
@@ -68,7 +66,11 @@ void App::renderGUI()
 {
     // Jeśli brak połączenia, pokaż okno łączenia
     if (!conn)
+    {
         drawConnectWindow();
+        drawCreateDatabaseWindow();
+        drawDropDatabaseWindow();
+    }
 
     // Jeśli połączono, pokaż główne okno
     if (conn)
@@ -80,7 +82,6 @@ void App::drawConnectWindow()
     ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(60, 60), ImGuiCond_FirstUseEver);
 
-    // Okno nie zamykalne do momentu połączenia
     if (ImGui::Begin("Connect to database", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextUnformatted("Enter database connection details:");
@@ -91,7 +92,54 @@ void App::drawConnectWindow()
         ImGui::InputText("Port", portBuf, sizeof(portBuf));
         ImGui::InputText("User", userBuf, sizeof(userBuf));
         ImGui::InputText("Password", passBuf, sizeof(passBuf), ImGuiInputTextFlags_Password);
-        ImGui::InputText("Database", dbBuf, sizeof(dbBuf));
+        ImGui::PopItemWidth();
+
+        ImGui::Spacing();
+        if (ImGui::Button("Refresh DBs", ImVec2(120, 0)))
+        {
+            std::string err;
+            availableDatabases.clear();
+            selectedDatabaseIndex = -1;
+            if (!fetchDatabases(availableDatabases, err))
+            {
+                connectError = err;
+            }
+            else
+            {
+                connectError.clear();
+                if (!availableDatabases.empty())
+                {
+                    // ustawienie domyślnej bazy na pierwszą z listy
+                    selectedDatabaseIndex = 0;
+                    std::snprintf(dbBuf, sizeof(dbBuf), "%s", availableDatabases[0].c_str());
+                }
+            }
+        }
+
+        ImGui::SameLine();
+        // pokazanie combo z dostępnymi bazami danych
+        const char* comboLabel = (selectedDatabaseIndex >= 0 && selectedDatabaseIndex < static_cast<int>(availableDatabases.size()))
+                                 ? availableDatabases[selectedDatabaseIndex].c_str()
+                                 : (dbBuf[0] ? dbBuf : "Select database...");
+        if (ImGui::BeginCombo("Database", comboLabel))
+        {
+            for (int i = 0; i < static_cast<int>(availableDatabases.size()); ++i)
+            {
+                bool selected = (i == selectedDatabaseIndex);
+                if (ImGui::Selectable(availableDatabases[i].c_str(), selected))
+                {
+                    selectedDatabaseIndex = i;
+                    std::snprintf(dbBuf, sizeof(dbBuf), "%s", availableDatabases[i].c_str());
+                }
+                if (selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::Spacing();
+        ImGui::PushItemWidth(320.0f);
+        ImGui::InputText("Database (manual)", dbBuf, sizeof(dbBuf));
         ImGui::PopItemWidth();
 
         if (!connectError.empty())
@@ -107,7 +155,6 @@ void App::drawConnectWindow()
             if (tryConnect(err))
             {
                 connectError.clear();
-                // Po sukcesie: wczytaj tabele
                 auto tables = getTablesFromDatabase(*conn);
                 tableSelector.setTables(tables);
             }
@@ -120,6 +167,168 @@ void App::drawConnectWindow()
     ImGui::End();
 }
 
+void App::drawCreateDatabaseWindow()
+{
+    ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(500, 60), ImGuiCond_FirstUseEver);
+
+    static char newDbName[128] = "";
+
+    if (ImGui::Begin("Create Database", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextUnformatted("Create a new database:");
+        ImGui::Separator();
+
+        ImGui::PushItemWidth(320.0f);
+        ImGui::InputText("Database Name", newDbName, sizeof(newDbName));
+        ImGui::PopItemWidth();
+
+        ImGui::Spacing();
+        if (ImGui::Button("Create Database", ImVec2(150, 0)))
+        {
+            std::string error;
+            if (createDatabase(hostBuf, userBuf, passBuf, newDbName))
+            {
+                std::snprintf(dbBuf, sizeof(dbBuf), "%s", newDbName);
+                connectError.clear();
+            }
+            else
+            {
+                connectError = error;
+            }
+        }
+    }
+    ImGui::End();
+}
+
+void App::drawDropDatabaseWindow()
+{
+    ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(940, 60), ImGuiCond_FirstUseEver);
+
+    static char dropDbName[128] = "";
+
+    if (ImGui::Begin("Drop Database", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextUnformatted("Drop an existing database:");
+        ImGui::Separator();
+
+        ImGui::PushItemWidth(320.0f);
+
+        if (ImGui::Button("Refresh DBs", ImVec2(120, 0)))
+        {
+            std::string err;
+            availableDatabases.clear();
+            selectedDatabaseIndex = -1;
+            if (!fetchDatabases(availableDatabasesForDrop, err))
+            {
+                connectError = err;
+            }
+            else
+            {
+                connectError.clear();
+                if (!availableDatabasesForDrop.empty())
+                {
+                    selectedDatabaseIndex = 0;
+                    std::snprintf(dropDbName, sizeof(dropDbName), "%s", availableDatabasesForDrop[0].c_str());
+                }
+            }
+        }
+
+        ImGui::SameLine();
+
+        const char* comboLabel = (selectedDatabaseIndex >= 0 && selectedDatabaseIndex < static_cast<int>(availableDatabasesForDrop.size()))
+                                 ? availableDatabasesForDrop[selectedDatabaseIndex].c_str()
+                                 : (dropDbName[0] ? dropDbName : "Select database...");
+
+        if (ImGui::BeginCombo("Database to Drop", comboLabel))
+        {
+            for (int i = 0; i < static_cast<int>(availableDatabasesForDrop.size()); ++i)
+            {
+                bool selected = (i == selectedDatabaseIndex);
+                if (ImGui::Selectable(availableDatabasesForDrop[i].c_str(), selected))
+                {
+                    selectedDatabaseIndex = i;
+                    std::snprintf(dropDbName, sizeof(dropDbName), "%s", availableDatabasesForDrop[i].c_str());
+                }
+                if (selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::PopItemWidth();
+
+        ImGui::Spacing();
+
+        if (!connectError.empty())
+        {
+            ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1.0f), "Error: %s", connectError.c_str());
+        }
+
+        ImGui::Spacing();
+        if (ImGui::Button("Drop Database", ImVec2(150, 0)))
+        {
+            ImGui::OpenPopup("Confirm Drop Database");
+        }
+
+        if (ImGui::BeginPopupModal("Confirm Drop Database", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+        {
+            ImGui::TextUnformatted("Are you sure you want to drop the database?");
+            ImGui::Separator();
+
+            if (ImGui::Button("Yes", ImVec2(120, 0)))
+            {
+                std::string error;
+                if (dropDatabase(hostBuf, userBuf, passBuf, dropDbName))
+                {
+                    connectError.clear();
+                    ImGui::CloseCurrentPopup();
+                }
+                else
+                {
+                    connectError = error;
+                }
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("No", ImVec2(120, 0)))
+            {
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+    }
+    ImGui::End();
+}
+
+bool App::dropDatabase(const std::string& host, const std::string& user, const std::string& password, const std::string& dbName)
+{
+    try
+    {
+        // Połączenie bez określonej bazy danych
+        sql::Driver* driver = sql::mariadb::get_driver_instance();
+        std::string endpoint = "tcp://" + host + ":" + std::string(portBuf); 
+
+        std::unique_ptr<sql::Connection> tmpConn(driver->connect(endpoint.c_str(), user.c_str(), password.c_str()));
+
+        // Usunięcie bazy danych 
+        std::unique_ptr<sql::Statement> stmt(tmpConn->createStatement());
+        stmt->execute("DROP DATABASE IF EXISTS " + dbName);
+
+        std::cout << "Database '" << dbName << "' dropped if it existed.\n";
+        return true;
+    }
+    catch (sql::SQLException& e)
+    {
+        std::cerr << "Failed to drop database: " << e.what()
+                  << "\nError code: " << e.getErrorCode()
+                  << "\nSQLState: " << e.getSQLState() << std::endl;
+        return false;
+    }
+}
+
 bool App::tryConnect(std::string& outError)
 {
     try
@@ -130,7 +339,10 @@ bool App::tryConnect(std::string& outError)
         std::unique_ptr<sql::Connection> newConn(driver->connect(
             endpoint.c_str(), userBuf, passBuf
         ));
-        newConn->setSchema(dbBuf);
+
+        // Jeśli użytkownik podał nazwę bazy w polu dbBuf -> ustawiamy
+        if (dbBuf[0] != '\0')
+            newConn->setSchema(dbBuf);
 
         conn = std::move(newConn);
 
@@ -148,6 +360,66 @@ bool App::tryConnect(std::string& outError)
     {
         outError = e.what();
         conn.reset();
+        return false;
+    }
+}
+
+bool App::createDatabase(const std::string& host, const std::string& user, const std::string& password, const std::string& dbName)
+{
+    try
+    {
+        // Połączenie bez określonej bazy danych
+        sql::Driver* driver = sql::mariadb::get_driver_instance();
+        std::string endpoint = "tcp://" + host + ":" + std::string(portBuf); 
+
+        std::unique_ptr<sql::Connection> tmpConn(driver->connect(endpoint.c_str(), user.c_str(), password.c_str()));
+
+        // Utworzenie bazy danych 
+        std::unique_ptr<sql::Statement> stmt(tmpConn->createStatement());
+        stmt->execute("CREATE DATABASE IF NOT EXISTS " + dbName);
+
+        std::snprintf(dbBuf, sizeof(dbBuf), "%s", dbName.c_str());
+
+        std::cout << "Database '" << dbName << "' created or already exists.\n";
+        return true;
+    }
+    catch (sql::SQLException& e)
+    {
+        std::cerr << "Failed to create database: " << e.what()
+                  << "\nError code: " << e.getErrorCode()
+                  << "\nSQLState: " << e.getSQLState() << std::endl;
+        return false;
+    }
+}
+
+bool App::fetchDatabases(std::vector<std::string>& outDatabases, std::string& outError)
+{
+    outDatabases.clear();
+    try
+    {
+        sql::Driver* driver = sql::mariadb::get_driver_instance();
+        std::string endpoint = "tcp://" + std::string(hostBuf) + ":" + std::string(portBuf);
+
+        // Połączenie bez ustawiania schematu 
+        std::unique_ptr<sql::Connection> tmpConn(driver->connect(endpoint.c_str(), userBuf, passBuf));
+        std::unique_ptr<sql::Statement> stmt(tmpConn->createStatement());
+        std::unique_ptr<sql::ResultSet> res(stmt->executeQuery("SHOW DATABASES"));
+
+        while (res->next())
+        {
+            outDatabases.push_back(res->getString(1).c_str());
+        }
+        outError.clear();
+        return true;
+    }
+    catch (sql::SQLException& e)
+    {
+        outError = e.what();
+        return false;
+    }
+    catch (const std::exception& e)
+    {
+        outError = e.what();
         return false;
     }
 }

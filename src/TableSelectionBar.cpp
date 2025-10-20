@@ -85,6 +85,16 @@ std::string TableSelectorBar::render(sql::Connection& conn)
         // Operacje na tabeli
         if (ImGui::BeginMenu("Operation"))
         {
+            if (ImGui::MenuItem("Create Table", nullptr, false, false))
+            {
+                openCreateTableRequested = true;
+            }
+
+            if (ImGui::MenuItem("Delete Table", nullptr, false, false))
+            {
+                openDeleteTableRequested = true;
+            }
+
             if (ImGui::MenuItem("Add Row", nullptr, false, !tables.empty()))
             {
                 openAddRowRequested = true;
@@ -106,6 +116,16 @@ std::string TableSelectorBar::render(sql::Connection& conn)
     {
         ImGui::OpenPopup(ADD_ROW_POPUP_ID);
         openAddRowRequested = false;
+    }
+
+    if (openCreateTableRequested)
+    {
+        // Niezaimplementowane
+    }
+
+    if (openDeleteTableRequested)
+    {
+        // Niezaimplementowane
     }
 
     addRowToTable(conn, getSelectedTable());

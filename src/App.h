@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <vector>
 #include <iostream>
 #include "imgui/imgui.h"
 #include "imgui/backends/imgui_impl_glfw.h"
@@ -42,9 +43,15 @@ private:
 
     // Rysuje i obsługuje okno łączenia (nie modal, zawsze widoczne dopóki brak połączenia)
     void drawConnectWindow();
+    void drawCreateDatabaseWindow();
+    void drawDropDatabaseWindow();
 
     // Próba połączenia na podstawie buforów z okna
     bool tryConnect(std::string& outError);
+    bool createDatabase(const std::string& host, const std::string& user, const std::string& password, const std::string& dbName);
+    bool dropDatabase(const std::string& host, const std::string& user, const std::string& password, const std::string& dbName);
+
+    bool fetchDatabases(std::vector<std::string>& outDbs, std::string& outError);
 
     // Widok danych po połączeniu
     void showMain();
@@ -67,6 +74,11 @@ private:
     char passBuf[128]{};
     char dbBuf[128]{};
     std::string connectError;
+
+    // Lista dostępnych baz danych 
+    std::vector<std::string> availableDatabases;
+    std::vector<std::string> availableDatabasesForDrop;
+    int selectedDatabaseIndex = -1;
 
     // Stan popupu Update 
     bool openUpdateRowRequested = false;

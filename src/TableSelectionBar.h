@@ -32,9 +32,13 @@ public:
     int getSelectedTableIndex() const { return selectedTableIndex; }
     std::string getSelectedTable() const { return tables.empty() ? "" : tables[selectedTableIndex]; }
 
+
+
 private:
     std::vector<std::string> tables;
     int selectedTableIndex = 0;
 
     bool openAddRowRequested = false;
+    bool openCreateTableRequested = false;
+    bool openDeleteTableRequested = false;
 };
